@@ -105,7 +105,7 @@ class StackOverflow extends Serializable {
 
     grouped.map( entry => (entry._2.head._1,                                //Get the question from first pair
                            answerHighScore(entry._2.unzip._2.toArray))      //Unzip into an array of answers and get the highScore
-               ).cache()
+               ).cache()                                                    //Cache the result
   }
 
 
@@ -125,8 +125,9 @@ class StackOverflow extends Serializable {
       }
     }
 
-    scored.map(q => (firstLangInTag(q._1.tags,langs).get * langSpread,q._2) ).cache()
-  }
+    scored.map(q => (firstLangInTag(q._1.tags,langs).get * langSpread,q._2) ) //Find the first language in tags and map questions to langIndex.
+          .cache()                                                            //Cache the result
+  }  
 
 
   /** Sample the vectors */
@@ -183,15 +184,20 @@ class StackOverflow extends Serializable {
   
     
     val newMeans = means.clone()
-    val averages= vectors.map( v => (findClosest(v, means),v)).groupByKey()
-                         .mapValues(averageVectors)
-                         .collect()
-                         
+    
+    //Compute averages for each cluster
+    val averages= vectors.map( v => (findClosest(v, means),v)) //Map each vector to a tuple (closestMeanIndex,vector)
+                         .groupByKey()                         //Group by closestMeanIndex
+                         .mapValues(averageVectors)            //Map values of each group to their average
+                         .collect()                            //Turn into array
+    
+    //For each average, update the corresponding mean                     
     var i=0
     while(i<averages.length){
       newMeans.update(averages(i)._1,averages(i)._2)
       i+=1
     }
+    
     val distance = euclideanDistance(means, newMeans)
 
     if (debug) {
@@ -292,12 +298,16 @@ class StackOverflow extends Serializable {
     val closestGrouped = closest.groupByKey()
 
     val median = closestGrouped.mapValues { vs =>
-      val groupedByLanguage = vs.map(v => (v._1,1)).groupBy(_._1).toList.sortBy(-_._2.size)
-      val langLabel: String   = langs(groupedByLanguage.head._1/langSpread) // most common language in the cluster
-      val langPercent: Double = 100.0*groupedByLanguage.head._2.size.toFloat/vs.size // percent of the questions in the most common language
+      val groupedByLanguage = vs.map(v => v._1/langSpread)   //Map vectors to their language index
+                                .groupBy(identity)           //Group same language indexes together
+                                .toList                      //Turn into list
+                                .sortBy(-_._2.size)          //Sort in descending order
+                                
+      val langLabel: String   = langs(groupedByLanguage.head._1)                                          // Most common language is the first one
+      val langPercent: Double = 100.0*groupedByLanguage.head._2.size.toFloat/vs.size                      // Percent of the questions in the most common language
       val clusterSize: Int    = vs.size
-      val sortedByHighScore =   vs.toList.sortBy(_._2)
-      val medianScore: Int    = (sortedByHighScore((vs.size-1)/2)._2+sortedByHighScore(vs.size/2)._2)/2
+      val sortedByHighScore =   vs.toList.sortBy(_._2)                                                    //Sort by highscore
+      val medianScore: Int    = (sortedByHighScore((vs.size-1)/2)._2+sortedByHighScore(vs.size/2)._2)/2   //Compute median
 
       (langLabel, langPercent, clusterSize, medianScore)
     }
